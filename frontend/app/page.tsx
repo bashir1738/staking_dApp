@@ -46,7 +46,7 @@ export default function Home() {
       )}
 
       {/* ── Main ────────────────────────────────────────────── */}
-      <main className="max-w-2xl mx-auto px-6 py-10">
+      <main className="max-w-6xl mx-auto px-6 py-10">
         {!wallet.isConnected ? (
           <Landing />
         ) : !onSepolia ? (
@@ -110,7 +110,7 @@ function Landing() {
       </button>
 
       <p className="text-sm" style={{ color: "var(--text-3)" }}>
-        7-day lock period · 10% early exit penalty
+        7-day lock period · -10% early exit penalty
       </p>
     </div>
   );

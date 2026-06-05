@@ -36,7 +36,7 @@ export function Dashboard({ totalStaked, totalRewardsPaid, totalClaimable, activ
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
       <Stat
-        label="Protocol Staked"
+        label="Total Staked"
         value={`${formatETH(totalStaked)} ETH`}
       />
       <Stat
