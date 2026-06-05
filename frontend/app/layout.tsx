@@ -5,7 +5,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Ola Stake",
-  description: "Stake ETH on Sepolia and earn tiered APR rewards with Ola Stake",
+  description: "Stake ETH on Sepolia and earn rewards with Ola Stake",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
