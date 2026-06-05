@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+/* ── Design tokens ──────────────────────────────────────────── */
+:root {
+  --bg:          #000000;
+  --surface:     #0a0a0a;
+  --surface-2:   #111111;
+  --surface-3:   #181818;
+  --border:      #1a1a1a;
+  --border-2:    #242424;
+  --border-3:    #2e2e2e;
+
+  --text:        #e8e8e8;
+  --text-2:      #909090;
+  --text-3:      #525252;
+
+  --green:       #4ade80;
+  --red:         #f87171;
+  --amber:       #fbbf24;
+}
+
+/* ── Base ───────────────────────────────────────────────────── */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html { background: var(--bg); }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Satoshi', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Typography helpers ─────────────────────────────────────── */
+.mono { font-family: 'SF Mono', 'Fira Code', 'Fira Mono', monospace; }
+.num  { font-variant-numeric: tabular-nums; }
+
+/* ── Scrollbar ──────────────────────────────────────────────── */
+::-webkit-scrollbar               { width: 6px; }
+::-webkit-scrollbar-track         { background: var(--bg); }
+::-webkit-scrollbar-thumb         { background: var(--border-2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover   { background: var(--border-3); }
+
+/* ── Input spinners ─────────────────────────────────────────── */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; }
+
+/* ── Focus ring ─────────────────────────────────────────────── */
+:focus-visible { outline: 1px solid var(--border-3); outline-offset: 2px; }
+
+/* ── Divider ────────────────────────────────────────────────── */
+.divider {
+  height: 1px;
+  background: var(--border);
+  margin: 0;
+}
