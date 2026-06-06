@@ -11,6 +11,7 @@ import { StakeForm }     from "@/components/StakeForm";
 import { StakeCard }     from "@/components/StakeCard";
 import { TxHistory }     from "@/components/TxHistory";
 import { TxStatus }      from "@/components/TxStatus";
+import { AdminPanel }    from "@/components/AdminPanel";
 
 export default function Home() {
   const wallet  = useWallet();
@@ -20,6 +21,8 @@ export default function Home() {
   const isBusy       = staking.txState.status === "signing" || staking.txState.status === "pending";
   const activeStakes = staking.stakes.filter((s) => s.active);
   const isDisabled   = isBusy || (staking.isPaused && !staking.emergencyMode);
+  const isOwner      = !!wallet.address && !!staking.contractOwner &&
+                       wallet.address.toLowerCase() === staking.contractOwner.toLowerCase();
 
   return (
     <div className="min-h-screen" style={{ background: "var(--bg)" }}>
@@ -59,6 +62,7 @@ export default function Home() {
             activeStakes={activeStakes}
             isBusy={isBusy}
             isDisabled={isDisabled}
+            isOwner={isOwner}
           />
         )}
       </main>
@@ -152,9 +156,10 @@ interface ConnectedProps {
   activeStakes: ReturnType<typeof useStaking>["stakes"];
   isBusy:       boolean;
   isDisabled:   boolean;
+  isOwner:      boolean;
 }
 
-function Connected({ wallet, staking, activeStakes, isBusy, isDisabled }: ConnectedProps) {
+function Connected({ wallet, staking, activeStakes, isBusy, isDisabled, isOwner }: ConnectedProps) {
   return (
     <div className="flex flex-col gap-8">
       <Dashboard
@@ -163,6 +168,21 @@ function Connected({ wallet, staking, activeStakes, isBusy, isDisabled }: Connec
         totalClaimable={staking.totalClaimable}
         activeStakesCount={activeStakes.length}
       />
+
+      {/* Owner admin panel */}
+      {isOwner && (
+        <>
+          <div className="divider" />
+          <AdminPanel
+            isPaused={staking.isPaused}
+            emergencyMode={staking.emergencyMode}
+            onPause={staking.doPause}
+            onUnpause={staking.doUnpause}
+            onSetEmergencyMode={staking.doSetEmergencyMode}
+            isDisabled={isBusy}
+          />
+        </>
+      )}
 
       {/* Emergency mode banner */}
       {staking.emergencyMode && (

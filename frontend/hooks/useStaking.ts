@@ -60,6 +60,7 @@ export function useStaking(
   const [totalPenaltiesCollected, setTotalPenaltiesCollected] = useState<bigint>(0n);
   const [emergencyMode, setEmergencyMode] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [contractOwner, setContractOwner] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [txState, setTxState] = useState<TxState>({ status: "idle", message: "" });
   const [txHistory, setTxHistory] = useState<TxHistoryItem[]>([]);
@@ -83,7 +84,7 @@ export function useStaking(
 
     setIsLoading(true);
     try {
-      const [rawStakes, ts, trp, tpc, em, paused] = await Promise.all([
+      const [rawStakes, ts, trp, tpc, em, paused, ownerAddr] = await Promise.all([
         contract.getUserStakes(address) as Promise<
           { amount: bigint; startTime: bigint; lastClaimTime: bigint; active: boolean }[]
         >,
@@ -92,6 +93,7 @@ export function useStaking(
         contract.totalPenaltiesCollected() as Promise<bigint>,
         contract.emergencyMode() as Promise<boolean>,
         contract.paused() as Promise<boolean>,
+        contract.owner() as Promise<string>,
       ]);
 
       const now = Math.floor(Date.now() / 1000);
@@ -120,6 +122,7 @@ export function useStaking(
       setTotalPenaltiesCollected(tpc);
       setEmergencyMode(em);
       setIsPaused(paused);
+      setContractOwner(ownerAddr);
     } catch {
       // silently ignore read errors (e.g. wrong network)
     } finally {
@@ -139,6 +142,7 @@ export function useStaking(
       setTotalPenaltiesCollected(0n);
       setEmergencyMode(false);
       setIsPaused(false);
+      setContractOwner(null);
     }
   }, [address]);
 
@@ -271,6 +275,33 @@ export function useStaking(
     [getContract, runTx, stakes]
   );
 
+  const doPause = useCallback(async () => {
+    const contract = getContract();
+    if (!contract) return;
+    await runTx(
+      () => contract.pause() as Promise<ethers.ContractTransactionResponse>,
+      { type: "staked", amountEth: "0" }
+    );
+  }, [getContract, runTx]);
+
+  const doUnpause = useCallback(async () => {
+    const contract = getContract();
+    if (!contract) return;
+    await runTx(
+      () => contract.unpause() as Promise<ethers.ContractTransactionResponse>,
+      { type: "staked", amountEth: "0" }
+    );
+  }, [getContract, runTx]);
+
+  const doSetEmergencyMode = useCallback(async (enabled: boolean) => {
+    const contract = getContract();
+    if (!contract) return;
+    await runTx(
+      () => contract.setEmergencyMode(enabled) as Promise<ethers.ContractTransactionResponse>,
+      { type: "staked", amountEth: "0" }
+    );
+  }, [getContract, runTx]);
+
   const clearTxStatus = useCallback(() => {
     setTxState({ status: "idle", message: "" });
   }, []);
@@ -288,6 +319,7 @@ export function useStaking(
     totalClaimable,
     emergencyMode,
     isPaused,
+    contractOwner,
     isLoading,
     txState,
     txHistory,
@@ -295,6 +327,9 @@ export function useStaking(
     doClaimRewards,
     doUnstake,
     doEmergencyUserWithdraw,
+    doPause,
+    doUnpause,
+    doSetEmergencyMode,
     clearTxStatus,
     refresh: fetchData,
   };
