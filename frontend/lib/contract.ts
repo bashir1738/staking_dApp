@@ -210,7 +210,4 @@ const _ABI_FALLBACK = [
   { stateMutability: "payable", type: "receive" },
 ] as const;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const ABI: any[] = process.env.NEXT_PUBLIC_CONTRACT_ABI
-  ? JSON.parse(process.env.NEXT_PUBLIC_CONTRACT_ABI)
-  : ([..._ABI_FALLBACK] as unknown as any[]);
+export const ABI: typeof _ABI_FALLBACK = _ABI_FALLBACK;
