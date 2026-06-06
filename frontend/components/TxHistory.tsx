@@ -5,10 +5,11 @@ import type { TxHistoryItem } from "@/hooks/useStaking";
 interface Props { items: TxHistoryItem[] }
 
 const LABELS: Record<TxHistoryItem["type"], string> = {
-  staked:    "Staked",
-  claimed:   "Claimed",
-  unstaked:  "Unstaked",
-  emergency: "Emergency",
+  staked:      "Staked",
+  claimed:     "Claimed",
+  unstaked:    "Unstaked",
+  emergency:   "Emergency",
+  transferred: "Transferred",
 };
 
 function timeAgo(ts: number): string {

@@ -252,11 +252,12 @@ function Connected({ wallet, staking, activeStakes, isBusy, isDisabled, isOwner 
           <div className="flex flex-col gap-3">
             {activeStakes.map((stake) => (
               <StakeCard
-                key={stake.index}
+                key={stake.tokenId.toString()}
                 stake={stake}
                 onClaim={staking.doClaimRewards}
                 onUnstake={staking.doUnstake}
                 onEmergencyWithdraw={staking.doEmergencyUserWithdraw}
+                onTransfer={staking.doTransfer}
                 isDisabled={isBusy}
                 emergencyMode={staking.emergencyMode}
                 isPaused={staking.isPaused}

@@ -17,6 +17,30 @@ describe("ETHStaking", function () {
     await owner.sendTransaction({ to: staking.target, value: ethers.parseEther("100") });
   });
 
+  // ─── ERC721 metadata ─────────────────────────────────────────────────────────
+
+  describe("ERC721 metadata", function () {
+    it("has correct name and symbol", async function () {
+      expect(await staking.name()).to.equal("Ola Stake Position");
+      expect(await staking.symbol()).to.equal("OLASTAKE");
+    });
+
+    it("returns a valid base64-encoded JSON tokenURI", async function () {
+      await staking.connect(alice).stake({ value: ethers.parseEther("1") });
+      const uri = await staking.tokenURI(0);
+      expect(uri).to.match(/^data:application\/json;base64,/);
+      const json = JSON.parse(Buffer.from(uri.replace("data:application/json;base64,", ""), "base64").toString());
+      expect(json.name).to.equal("Stake Position #0");
+      expect(json.attributes).to.be.an("array").with.length(3);
+      expect(json.image).to.match(/^data:image\/svg\+xml;base64,/);
+    });
+
+    it("reverts tokenURI for non-existent token", async function () {
+      await expect(staking.tokenURI(99))
+        .to.be.revertedWithCustomError(staking, "ERC721NonexistentToken");
+    });
+  });
+
   // ─── APR tiers ────────────────────────────────────────────────────────────────
 
   describe("APR tiers", function () {
@@ -43,7 +67,13 @@ describe("ETHStaking", function () {
       expect(await staking.totalStaked()).to.equal(ethers.parseEther("2"));
     });
 
-    it("emits StakeCreated with correct APR", async function () {
+    it("mints an NFT to the staker with incrementing tokenId", async function () {
+      await staking.connect(alice).stake({ value: ethers.parseEther("1") });
+      expect(await staking.ownerOf(0)).to.equal(alice.address);
+      expect(await staking.balanceOf(alice.address)).to.equal(1);
+    });
+
+    it("emits StakeCreated with correct tokenId and APR", async function () {
       await expect(
         staking.connect(alice).stake({ value: ethers.parseEther("2") })
       )
@@ -51,11 +81,18 @@ describe("ETHStaking", function () {
         .withArgs(alice.address, 0, ethers.parseEther("2"), 800);
     });
 
+    it("tokenIds increment across users", async function () {
+      await staking.connect(alice).stake({ value: ethers.parseEther("1") }); // tokenId 0
+      await staking.connect(bob).stake({ value: ethers.parseEther("1") });   // tokenId 1
+      expect(await staking.ownerOf(0)).to.equal(alice.address);
+      expect(await staking.ownerOf(1)).to.equal(bob.address);
+    });
+
     it("supports multiple stakes per user", async function () {
       await staking.connect(alice).stake({ value: ethers.parseEther("1") });
       await staking.connect(alice).stake({ value: ethers.parseEther("2") });
-      const stakes = await staking.getUserStakes(alice.address);
-      expect(stakes.length).to.equal(2);
+      const positions = await staking.getUserStakes(alice.address);
+      expect(positions.length).to.equal(2);
     });
 
     it("reverts when staking 0 ETH", async function () {
@@ -82,7 +119,6 @@ describe("ETHStaking", function () {
   describe("reward calculation", function () {
     it("calculates reward proportional to time", async function () {
       const amount = ethers.parseEther("1"); // APR = 800 bps
-      // 30 days
       const duration = 30 * ONE_DAY;
       const expected = (amount * 800n * BigInt(duration)) / (BigInt(365 * ONE_DAY) * 10_000n);
       expect(await staking.calculateReward(amount, 800, duration)).to.equal(expected);
@@ -91,9 +127,9 @@ describe("ETHStaking", function () {
     it("getPendingReward increases over time", async function () {
       await staking.connect(alice).stake({ value: ethers.parseEther("1") });
       await time.increase(ONE_DAY);
-      const r1 = await staking.getPendingReward(alice.address, 0);
+      const r1 = await staking.getPendingReward(0); // tokenId 0
       await time.increase(ONE_DAY);
-      const r2 = await staking.getPendingReward(alice.address, 0);
+      const r2 = await staking.getPendingReward(0);
       expect(r2).to.be.gt(r1);
     });
   });
@@ -106,7 +142,7 @@ describe("ETHStaking", function () {
       await time.increase(30 * ONE_DAY);
 
       const before = await ethers.provider.getBalance(alice.address);
-      const pending = await staking.getPendingReward(alice.address, 0);
+      const pending = await staking.getPendingReward(0);
 
       const tx = await staking.connect(alice).claimRewards(0);
       const receipt = await tx.wait();
@@ -122,21 +158,31 @@ describe("ETHStaking", function () {
       await expect(staking.connect(alice).claimRewards(0)).to.emit(staking, "RewardClaimed");
     });
 
-    it("keeps principal staked after claim", async function () {
+    it("keeps principal staked after claim and NFT remains", async function () {
       await staking.connect(alice).stake({ value: ethers.parseEther("1") });
       await time.increase(30 * ONE_DAY);
       await staking.connect(alice).claimRewards(0);
 
-      const stakes = await staking.getUserStakes(alice.address);
-      expect(stakes[0].active).to.be.true;
-      expect(stakes[0].amount).to.equal(ethers.parseEther("1"));
+      const positions = await staking.getUserStakes(alice.address);
+      expect(positions[0].active).to.be.true;
+      expect(positions[0].amount).to.equal(ethers.parseEther("1"));
+      expect(await staking.ownerOf(0)).to.equal(alice.address);
     });
 
-    it("reverts when claiming on an inactive stake", async function () {
+    it("reverts for non-owner of the token", async function () {
+      await staking.connect(alice).stake({ value: ethers.parseEther("1") });
+      await time.increase(ONE_DAY);
+      await expect(staking.connect(bob).claimRewards(0))
+        .to.be.revertedWith("Not token owner");
+    });
+
+    it("reverts on a burned (redeemed) token", async function () {
       await staking.connect(alice).stake({ value: ethers.parseEther("1") });
       await time.increase(SEVEN_DAYS + ONE_DAY);
       await staking.connect(alice).unstake(0);
-      await expect(staking.connect(alice).claimRewards(0)).to.be.revertedWith("Stake not active");
+      // Token is burned — ownerOf reverts
+      await expect(staking.connect(alice).claimRewards(0))
+        .to.be.revertedWithCustomError(staking, "ERC721NonexistentToken");
     });
 
     it("reverts when paused", async function () {
@@ -153,11 +199,11 @@ describe("ETHStaking", function () {
   // ─── Unstake (normal) ─────────────────────────────────────────────────────────
 
   describe("unstake() after lock period", function () {
-    it("returns principal + reward with no penalty", async function () {
+    it("returns principal + reward with no penalty and burns the NFT", async function () {
       await staking.connect(alice).stake({ value: ethers.parseEther("2") });
       await time.increase(SEVEN_DAYS + ONE_DAY);
 
-      const pending = await staking.getPendingReward(alice.address, 0);
+      const pending = await staking.getPendingReward(0);
       const before = await ethers.provider.getBalance(alice.address);
 
       const tx = await staking.connect(alice).unstake(0);
@@ -169,15 +215,17 @@ describe("ETHStaking", function () {
         before + ethers.parseEther("2") + pending - gasCost,
         ethers.parseEther("0.0001")
       );
+      // NFT burned
+      await expect(staking.ownerOf(0)).to.be.revertedWithCustomError(staking, "ERC721NonexistentToken");
     });
 
-    it("marks stake as inactive and decrements totalStaked", async function () {
+    it("removes the position from getUserStakes and decrements totalStaked", async function () {
       await staking.connect(alice).stake({ value: ethers.parseEther("1") });
       await time.increase(SEVEN_DAYS + ONE_DAY);
       await staking.connect(alice).unstake(0);
 
-      const stakes = await staking.getUserStakes(alice.address);
-      expect(stakes[0].active).to.be.false;
+      const positions = await staking.getUserStakes(alice.address);
+      expect(positions.length).to.equal(0);
       expect(await staking.totalStaked()).to.equal(0);
     });
 
@@ -185,6 +233,13 @@ describe("ETHStaking", function () {
       await staking.connect(alice).stake({ value: ethers.parseEther("1") });
       await time.increase(SEVEN_DAYS + ONE_DAY);
       await expect(staking.connect(alice).unstake(0)).to.emit(staking, "StakeWithdrawn");
+    });
+
+    it("reverts for non-owner of the token", async function () {
+      await staking.connect(alice).stake({ value: ethers.parseEther("1") });
+      await time.increase(SEVEN_DAYS + ONE_DAY);
+      await expect(staking.connect(bob).unstake(0))
+        .to.be.revertedWith("Not token owner");
     });
   });
 
@@ -194,7 +249,7 @@ describe("ETHStaking", function () {
     it("applies 10% penalty before lock period ends", async function () {
       const stakeAmount = ethers.parseEther("1");
       await staking.connect(alice).stake({ value: stakeAmount });
-      await time.increase(ONE_DAY); // only 1 day, lock is 7
+      await time.increase(ONE_DAY);
 
       const before = await ethers.provider.getBalance(alice.address);
       const tx = await staking.connect(alice).unstake(0);
@@ -205,7 +260,6 @@ describe("ETHStaking", function () {
       const penalty = stakeAmount / 10n;
       const expectedPrincipal = stakeAmount - penalty;
 
-      // net received ≈ principal - penalty (reward is tiny for 1 day, ignore in comparison)
       expect(after - before + gasCost).to.be.lt(stakeAmount);
       expect(after - before + gasCost).to.be.gte(expectedPrincipal);
     });
@@ -224,8 +278,65 @@ describe("ETHStaking", function () {
     it("does not penalise when exactly at lock period boundary", async function () {
       await staking.connect(alice).stake({ value: ethers.parseEther("1") });
       await time.increase(SEVEN_DAYS);
-
       await expect(staking.connect(alice).unstake(0)).to.not.emit(staking, "PenaltyApplied");
+    });
+  });
+
+  // ─── NFT transfer ─────────────────────────────────────────────────────────────
+
+  describe("NFT transfer (stake ownership transfer)", function () {
+    it("transferring the NFT transfers stake ownership", async function () {
+      await staking.connect(alice).stake({ value: ethers.parseEther("1") });
+      expect(await staking.ownerOf(0)).to.equal(alice.address);
+
+      await staking.connect(alice).transferFrom(alice.address, bob.address, 0);
+      expect(await staking.ownerOf(0)).to.equal(bob.address);
+
+      const alicePositions = await staking.getUserStakes(alice.address);
+      const bobPositions   = await staking.getUserStakes(bob.address);
+      expect(alicePositions.length).to.equal(0);
+      expect(bobPositions.length).to.equal(1);
+      expect(bobPositions[0].tokenId).to.equal(0n);
+    });
+
+    it("new owner can claim accrued rewards after transfer", async function () {
+      await staking.connect(alice).stake({ value: ethers.parseEther("1") });
+      await time.increase(7 * ONE_DAY);
+
+      await staking.connect(alice).transferFrom(alice.address, bob.address, 0);
+
+      const pending = await staking.getPendingReward(0);
+      expect(pending).to.be.gt(0);
+
+      const before = await ethers.provider.getBalance(bob.address);
+      const tx = await staking.connect(bob).claimRewards(0);
+      const receipt = await tx.wait();
+      const after = await ethers.provider.getBalance(bob.address);
+      expect(after - before + receipt.gasUsed * tx.gasPrice).to.be.closeTo(
+        pending, ethers.parseEther("0.001")
+      );
+    });
+
+    it("original owner cannot claim or unstake after transfer", async function () {
+      await staking.connect(alice).stake({ value: ethers.parseEther("1") });
+      await time.increase(ONE_DAY);
+      await staking.connect(alice).transferFrom(alice.address, bob.address, 0);
+
+      await expect(staking.connect(alice).claimRewards(0)).to.be.revertedWith("Not token owner");
+      await expect(staking.connect(alice).unstake(0)).to.be.revertedWith("Not token owner");
+    });
+
+    it("new owner can unstake after lock period", async function () {
+      await staking.connect(alice).stake({ value: ethers.parseEther("1") });
+      await time.increase(SEVEN_DAYS + ONE_DAY);
+      await staking.connect(alice).transferFrom(alice.address, bob.address, 0);
+
+      const before = await ethers.provider.getBalance(bob.address);
+      const tx = await staking.connect(bob).unstake(0);
+      const receipt = await tx.wait();
+      const after = await ethers.provider.getBalance(bob.address);
+
+      expect(after - before + receipt.gasUsed * tx.gasPrice).to.be.gte(ethers.parseEther("1"));
     });
   });
 
@@ -293,7 +404,7 @@ describe("ETHStaking", function () {
       );
     });
 
-    it("returns principal with no rewards in emergency mode", async function () {
+    it("returns principal with no rewards and burns the NFT", async function () {
       const stakeAmount = ethers.parseEther("1");
       await staking.connect(alice).stake({ value: stakeAmount });
       await time.increase(30 * ONE_DAY);
@@ -306,17 +417,17 @@ describe("ETHStaking", function () {
       const gasCost = receipt.gasUsed * tx.gasPrice;
       const after = await ethers.provider.getBalance(alice.address);
 
-      // should receive exactly the principal (no rewards, no penalty)
       expect(after).to.be.closeTo(before + stakeAmount - gasCost, ethers.parseEther("0.0001"));
+      await expect(staking.ownerOf(0)).to.be.revertedWithCustomError(staking, "ERC721NonexistentToken");
     });
 
-    it("marks stake inactive and decrements totalStaked", async function () {
+    it("removes position from getUserStakes and decrements totalStaked", async function () {
       await staking.connect(alice).stake({ value: ethers.parseEther("2") });
       await staking.setEmergencyMode(true);
       await staking.connect(alice).emergencyUserWithdraw(0);
 
-      const stakes = await staking.getUserStakes(alice.address);
-      expect(stakes[0].active).to.be.false;
+      const positions = await staking.getUserStakes(alice.address);
+      expect(positions.length).to.equal(0);
       expect(await staking.totalStaked()).to.equal(0);
     });
 
@@ -332,48 +443,47 @@ describe("ETHStaking", function () {
       await staking.connect(alice).stake({ value: ethers.parseEther("1") });
       await staking.setEmergencyMode(true);
       await staking.pause();
-      // emergency withdrawal should bypass the pause
       await expect(staking.connect(alice).emergencyUserWithdraw(0)).to.not.be.reverted;
     });
 
-    it("reverts on already-inactive stake", async function () {
+    it("reverts when called again after the token is burned", async function () {
       await staking.connect(alice).stake({ value: ethers.parseEther("1") });
       await staking.setEmergencyMode(true);
       await staking.connect(alice).emergencyUserWithdraw(0);
-      await expect(staking.connect(alice).emergencyUserWithdraw(0)).to.be.revertedWith(
-        "Stake not active"
-      );
+      // Token is burned
+      await expect(staking.connect(alice).emergencyUserWithdraw(0))
+        .to.be.revertedWithCustomError(staking, "ERC721NonexistentToken");
     });
   });
 
   // ─── Multiple stakes ──────────────────────────────────────────────────────────
 
   describe("Multiple stakes", function () {
-    it("each stake is tracked independently", async function () {
-      await staking.connect(alice).stake({ value: ethers.parseEther("0.5") }); // APR 5%
+    it("each stake is tracked independently via its tokenId", async function () {
+      await staking.connect(alice).stake({ value: ethers.parseEther("0.5") }); // tokenId 0, APR 5%
       await time.increase(ONE_DAY);
-      await staking.connect(alice).stake({ value: ethers.parseEther("5") });   // APR 12%
+      await staking.connect(alice).stake({ value: ethers.parseEther("5") });   // tokenId 1, APR 12%
       await time.increase(ONE_DAY);
 
-      const r0 = await staking.getPendingReward(alice.address, 0);
-      const r1 = await staking.getPendingReward(alice.address, 1);
+      const r0 = await staking.getPendingReward(0);
+      const r1 = await staking.getPendingReward(1);
 
-      // Stake 1 (5 ETH @ 12%) should have higher reward despite less elapsed time
-      // 0.5 ETH @ 5% for 2 days vs 5 ETH @ 12% for 1 day
-      // 0.5*500*2 = 500 vs 5*1200*1 = 6000 — stake 1 wins
+      // 5 ETH @ 12% for 1 day >> 0.5 ETH @ 5% for 2 days
       expect(r1).to.be.gt(r0);
     });
 
-    it("unstaking one stake does not affect others", async function () {
-      await staking.connect(alice).stake({ value: ethers.parseEther("1") });
-      await staking.connect(alice).stake({ value: ethers.parseEther("2") });
+    it("unstaking one position does not affect others", async function () {
+      await staking.connect(alice).stake({ value: ethers.parseEther("1") }); // tokenId 0
+      await staking.connect(alice).stake({ value: ethers.parseEther("2") }); // tokenId 1
       await time.increase(SEVEN_DAYS + ONE_DAY);
 
-      await staking.connect(alice).unstake(0);
+      await staking.connect(alice).unstake(0); // burns tokenId 0
 
-      const stakes = await staking.getUserStakes(alice.address);
-      expect(stakes[0].active).to.be.false;
-      expect(stakes[1].active).to.be.true;
+      const positions = await staking.getUserStakes(alice.address);
+      expect(positions.length).to.equal(1);
+      expect(positions[0].tokenId).to.equal(1n);
+      expect(positions[0].active).to.be.true;
+      expect(await staking.totalStaked()).to.equal(ethers.parseEther("2"));
     });
   });
 
@@ -381,8 +491,8 @@ describe("ETHStaking", function () {
 
   describe("Treasury tracking", function () {
     it("tracks totalStaked correctly across multiple users", async function () {
-      await staking.connect(alice).stake({ value: ethers.parseEther("1") });
-      await staking.connect(bob).stake({ value: ethers.parseEther("3") });
+      await staking.connect(alice).stake({ value: ethers.parseEther("1") }); // tokenId 0
+      await staking.connect(bob).stake({ value: ethers.parseEther("3") });   // tokenId 1
       expect(await staking.totalStaked()).to.equal(ethers.parseEther("4"));
 
       await time.increase(SEVEN_DAYS + ONE_DAY);

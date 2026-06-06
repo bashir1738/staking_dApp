@@ -25,25 +25,30 @@ async function main() {
   console.log("Tx hash:   ", receipt.hash);
   console.log("Block:     ", receipt.blockNumber);
 
-  // Write CONTRACT_ADDRESS into the frontend .env.local
+  // Write CONTRACT_ADDRESS and ABI into the frontend .env.local
   const frontendEnvPath = path.resolve(__dirname, "../../frontend/.env.local");
-  const line = `NEXT_PUBLIC_CONTRACT_ADDRESS=${address}\n`;
+  const artifactPath = path.resolve(__dirname, "../artifacts/contracts/ETHStaking.sol/ETHStaking.json");
+  const artifact = JSON.parse(fs.readFileSync(artifactPath, "utf8"));
+  const abiJson = JSON.stringify(artifact.abi);
 
-  let existing = "";
-  if (fs.existsSync(frontendEnvPath)) {
-    existing = fs.readFileSync(frontendEnvPath, "utf8");
-    // Replace existing entry if present
-    if (existing.includes("NEXT_PUBLIC_CONTRACT_ADDRESS=")) {
-      existing = existing.replace(/NEXT_PUBLIC_CONTRACT_ADDRESS=.*/g, line.trim());
-      fs.writeFileSync(frontendEnvPath, existing);
+  const updates = {
+    NEXT_PUBLIC_CONTRACT_ADDRESS: address,
+    NEXT_PUBLIC_CONTRACT_ABI: abiJson,
+  };
+
+  let existing = fs.existsSync(frontendEnvPath) ? fs.readFileSync(frontendEnvPath, "utf8") : "";
+
+  for (const [key, value] of Object.entries(updates)) {
+    const line = `${key}=${value}`;
+    if (existing.includes(`${key}=`)) {
+      existing = existing.replace(new RegExp(`${key}=.*`), line);
     } else {
-      fs.appendFileSync(frontendEnvPath, `\n${line}`);
+      existing += `\n${line}`;
     }
-  } else {
-    fs.writeFileSync(frontendEnvPath, line);
   }
 
-  console.log("\nWrote NEXT_PUBLIC_CONTRACT_ADDRESS to frontend/.env.local");
+  fs.writeFileSync(frontendEnvPath, existing);
+  console.log("\nWrote NEXT_PUBLIC_CONTRACT_ADDRESS and NEXT_PUBLIC_CONTRACT_ABI to frontend/.env.local");
   console.log("\nVerify on Etherscan (run after a few block confirmations):");
   console.log(`  npx hardhat verify --network sepolia ${address}`);
 

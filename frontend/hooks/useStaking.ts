@@ -6,7 +6,7 @@ import { CONTRACT_ADDRESS, ABI } from "@/lib/contract";
 import { parseError, getAPRBps } from "@/lib/utils";
 
 export interface StakeInfo {
-  index: number;
+  tokenId: bigint;
   amount: bigint;
   startTime: number;
   lastClaimTime: number;
@@ -17,7 +17,7 @@ export interface StakeInfo {
 }
 
 export interface TxHistoryItem {
-  type: "staked" | "claimed" | "unstaked" | "emergency";
+  type: "staked" | "claimed" | "unstaked" | "emergency" | "transferred";
   amountEth: string;
   hash: string;
   timestamp: number;
@@ -84,9 +84,9 @@ export function useStaking(
 
     setIsLoading(true);
     try {
-      const [rawStakes, ts, trp, tpc, em, paused, ownerAddr] = await Promise.all([
+      const [rawPositions, ts, trp, tpc, em, paused, ownerAddr] = await Promise.all([
         contract.getUserStakes(address) as Promise<
-          { amount: bigint; startTime: bigint; lastClaimTime: bigint; active: boolean }[]
+          { tokenId: bigint; amount: bigint; startTime: bigint; lastClaimTime: bigint; active: boolean }[]
         >,
         contract.totalStaked() as Promise<bigint>,
         contract.totalRewardsPaid() as Promise<bigint>,
@@ -99,19 +99,19 @@ export function useStaking(
       const now = Math.floor(Date.now() / 1000);
 
       const enriched: StakeInfo[] = await Promise.all(
-        rawStakes.map(async (s, i) => {
-          const pendingReward = s.active
-            ? (await contract.getPendingReward(address, i)) as bigint
+        rawPositions.map(async (p) => {
+          const pendingReward = p.active
+            ? (await contract.getPendingReward(p.tokenId)) as bigint
             : 0n;
           return {
-            index: i,
-            amount: s.amount,
-            startTime: Number(s.startTime),
-            lastClaimTime: Number(s.lastClaimTime),
-            active: s.active,
+            tokenId: p.tokenId,
+            amount: p.amount,
+            startTime: Number(p.startTime),
+            lastClaimTime: Number(p.lastClaimTime),
+            active: p.active,
             pendingReward,
-            apr: getAPRBps(s.amount),
-            isLocked: now < Number(s.startTime) + SEVEN_DAYS,
+            apr: getAPRBps(p.amount),
+            isLocked: now < Number(p.startTime) + SEVEN_DAYS,
           };
         })
       );
@@ -166,7 +166,6 @@ export function useStaking(
     if (!provider) return;
 
     const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, provider);
-
     const refresh = () => { fetchData(); };
 
     contract.on("StakeCreated", refresh);
@@ -176,6 +175,7 @@ export function useStaking(
     contract.on("EmergencyModeSet", refresh);
     contract.on("Paused", refresh);
     contract.on("Unpaused", refresh);
+    contract.on("Transfer", refresh); // ERC721 transfer refreshes stake list
 
     return () => {
       contract.removeAllListeners();
@@ -230,28 +230,28 @@ export function useStaking(
   );
 
   const doClaimRewards = useCallback(
-    async (stakeIndex: number) => {
+    async (tokenId: bigint) => {
       const contract = getContract();
       if (!contract) return;
       await runTx(
-        () => contract.claimRewards(stakeIndex) as Promise<ethers.ContractTransactionResponse>,
-        { type: "claimed", amountEth: "0", stakeIndex }
+        () => contract.claimRewards(tokenId) as Promise<ethers.ContractTransactionResponse>,
+        { type: "claimed", amountEth: "0", stakeIndex: Number(tokenId) }
       );
     },
     [getContract, runTx]
   );
 
   const doUnstake = useCallback(
-    async (stakeIndex: number) => {
+    async (tokenId: bigint) => {
       const contract = getContract();
       if (!contract) return;
-      const stake = stakes.find((s) => s.index === stakeIndex);
+      const stake = stakes.find((s) => s.tokenId === tokenId);
       await runTx(
-        () => contract.unstake(stakeIndex) as Promise<ethers.ContractTransactionResponse>,
+        () => contract.unstake(tokenId) as Promise<ethers.ContractTransactionResponse>,
         {
           type: "unstaked",
           amountEth: stake ? ethers.formatEther(stake.amount) : "0",
-          stakeIndex,
+          stakeIndex: Number(tokenId),
         }
       );
     },
@@ -259,20 +259,36 @@ export function useStaking(
   );
 
   const doEmergencyUserWithdraw = useCallback(
-    async (stakeIndex: number) => {
+    async (tokenId: bigint) => {
       const contract = getContract();
       if (!contract) return;
-      const stake = stakes.find((s) => s.index === stakeIndex);
+      const stake = stakes.find((s) => s.tokenId === tokenId);
       await runTx(
-        () => contract.emergencyUserWithdraw(stakeIndex) as Promise<ethers.ContractTransactionResponse>,
+        () => contract.emergencyUserWithdraw(tokenId) as Promise<ethers.ContractTransactionResponse>,
         {
           type: "emergency",
           amountEth: stake ? ethers.formatEther(stake.amount) : "0",
-          stakeIndex,
+          stakeIndex: Number(tokenId),
         }
       );
     },
     [getContract, runTx, stakes]
+  );
+
+  const doTransfer = useCallback(
+    async (tokenId: bigint, toAddress: string) => {
+      const contract = getContract();
+      if (!contract || !address) return;
+      await runTx(
+        () => contract.transferFrom(address, toAddress, tokenId) as Promise<ethers.ContractTransactionResponse>,
+        {
+          type: "transferred",
+          amountEth: "0",
+          stakeIndex: Number(tokenId),
+        }
+      );
+    },
+    [getContract, runTx, address]
   );
 
   const doPause = useCallback(async () => {
@@ -327,6 +343,7 @@ export function useStaking(
     doClaimRewards,
     doUnstake,
     doEmergencyUserWithdraw,
+    doTransfer,
     doPause,
     doUnpause,
     doSetEmergencyMode,
