@@ -91,6 +91,13 @@ const _ABI_FALLBACK = [
     type: "function",
   },
   {
+    inputs: [{ internalType: "uint256", name: "stakeIndex", type: "uint256" }],
+    name: "emergencyUserWithdraw",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
     inputs: [],
     name: "emergencyWithdraw",
     outputs: [],

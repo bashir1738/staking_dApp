@@ -7,19 +7,25 @@ interface Props {
   stake: StakeInfo;
   onClaim: (index: number) => Promise<void>;
   onUnstake: (index: number) => Promise<void>;
+  onEmergencyWithdraw: (index: number) => Promise<void>;
   isDisabled: boolean;
+  emergencyMode: boolean;
+  isPaused: boolean;
 }
 
-export function StakeCard({ stake, onClaim, onUnstake, isDisabled }: Props) {
+export function StakeCard({ stake, onClaim, onUnstake, onEmergencyWithdraw, isDisabled, emergencyMode, isPaused }: Props) {
   const apr       = getAPRLabel(stake.amount);
   const duration  = formatDuration(stake.startTime);
   const remaining = lockTimeRemaining(stake.startTime);
   const isLocked  = !!remaining;
 
+  // Normal actions are blocked when paused (unless emergency mode allows emergency exit)
+  const normalActionsBlocked = isPaused && !emergencyMode;
+
   return (
     <div
       className="rounded-xl p-5"
-      style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+      style={{ background: "var(--surface)", border: `1px solid ${emergencyMode ? "#3a1a1a" : "var(--border)"}` }}
     >
       {/* Top row */}
       <div className="flex items-start justify-between mb-4">
@@ -64,8 +70,24 @@ export function StakeCard({ stake, onClaim, onUnstake, isDisabled }: Props) {
         </div>
       </div>
 
-      {/* Lock status */}
-      {isLocked ? (
+      {/* Lock / paused / emergency status */}
+      {emergencyMode ? (
+        <div
+          className="flex items-center gap-2 px-4 py-2.5 rounded-lg mb-4 text-sm"
+          style={{ background: "#180808", border: "1px solid #4a1515", color: "#fca5a5" }}
+        >
+          <span className="flex-shrink-0">!</span>
+          <span>Emergency mode — withdraw principal now, no rewards paid</span>
+        </div>
+      ) : isPaused ? (
+        <div
+          className="flex items-center gap-2 px-4 py-2.5 rounded-lg mb-4 text-sm"
+          style={{ background: "#111008", border: "1px solid #2a2208", color: "var(--amber)" }}
+        >
+          <span className="flex-shrink-0">⏸</span>
+          <span>Contract paused — all actions disabled</span>
+        </div>
+      ) : isLocked ? (
         <div
           className="flex items-center gap-2 px-4 py-2.5 rounded-lg mb-4 text-sm"
           style={{ background: "#111008", border: "1px solid #2a2208", color: "var(--amber)" }}
@@ -84,36 +106,49 @@ export function StakeCard({ stake, onClaim, onUnstake, isDisabled }: Props) {
       )}
 
       {/* Actions */}
-      <div className="flex gap-3">
+      {emergencyMode ? (
         <button
-          onClick={() => onClaim(stake.index)}
-          disabled={isDisabled || stake.pendingReward === 0n}
-          className="flex-1 py-2.5 rounded-lg text-sm font-medium cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          style={{ background: "var(--surface-2)", border: "1px solid var(--border-2)", color: "var(--text)" }}
-          onMouseEnter={(e) => { if (!isDisabled) e.currentTarget.style.borderColor = "var(--border-3)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border-2)"; }}
-        >
-          Claim Rewards
-        </button>
-        <button
-          onClick={() => onUnstake(stake.index)}
+          onClick={() => onEmergencyWithdraw(stake.index)}
           disabled={isDisabled}
-          className="flex-1 py-2.5 rounded-lg text-sm font-medium cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          style={{
-            background: isLocked ? "#180c0c" : "var(--surface-2)",
-            border: `1px solid ${isLocked ? "#3a1a1a" : "var(--border-2)"}`,
-            color: isLocked ? "#fca5a5" : "var(--text)",
-          }}
-          onMouseEnter={(e) => {
-            if (!isDisabled) e.currentTarget.style.borderColor = isLocked ? "#5a2a2a" : "var(--border-3)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = isLocked ? "#3a1a1a" : "var(--border-2)";
-          }}
+          className="w-full py-2.5 rounded-lg text-sm font-medium cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          style={{ background: "#2a0a0a", border: "1px solid #5a1a1a", color: "#fca5a5" }}
+          onMouseEnter={(e) => { if (!isDisabled) e.currentTarget.style.borderColor = "#7a2a2a"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#5a1a1a"; }}
         >
-          {isLocked ? "Unstake (−10%)" : "Unstake"}
+          Emergency Withdraw (principal only)
         </button>
-      </div>
+      ) : (
+        <div className="flex gap-3">
+          <button
+            onClick={() => onClaim(stake.index)}
+            disabled={isDisabled || normalActionsBlocked || stake.pendingReward === 0n}
+            className="flex-1 py-2.5 rounded-lg text-sm font-medium cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            style={{ background: "var(--surface-2)", border: "1px solid var(--border-2)", color: "var(--text)" }}
+            onMouseEnter={(e) => { if (!isDisabled && !normalActionsBlocked) e.currentTarget.style.borderColor = "var(--border-3)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border-2)"; }}
+          >
+            Claim Rewards
+          </button>
+          <button
+            onClick={() => onUnstake(stake.index)}
+            disabled={isDisabled || normalActionsBlocked}
+            className="flex-1 py-2.5 rounded-lg text-sm font-medium cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            style={{
+              background: isLocked ? "#180c0c" : "var(--surface-2)",
+              border: `1px solid ${isLocked ? "#3a1a1a" : "var(--border-2)"}`,
+              color: isLocked ? "#fca5a5" : "var(--text)",
+            }}
+            onMouseEnter={(e) => {
+              if (!isDisabled && !normalActionsBlocked) e.currentTarget.style.borderColor = isLocked ? "#5a2a2a" : "var(--border-3)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = isLocked ? "#3a1a1a" : "var(--border-2)";
+            }}
+          >
+            {isLocked ? "Unstake (−10%)" : "Unstake"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -110,7 +110,7 @@ contract ETHStaking is ReentrancyGuard, Pausable, Ownable {
         require(ok, "Transfer failed");
     }
 
-    function unstake(uint256 stakeIndex) external nonReentrant {
+    function unstake(uint256 stakeIndex) external nonReentrant whenNotPaused {
         require(stakeIndex < _stakes[msg.sender].length, "Invalid stake index");
         Stake storage s = _stakes[msg.sender][stakeIndex];
         require(s.active, "Stake not active");
@@ -136,6 +136,26 @@ contract ETHStaking is ReentrancyGuard, Pausable, Ownable {
         emit StakeWithdrawn(msg.sender, stakeIndex, principal, reward);
 
         (bool ok, ) = msg.sender.call{value: payout}("");
+        require(ok, "Transfer failed");
+    }
+
+    /// @dev Lets users withdraw principal immediately when emergency mode is active.
+    ///      No rewards are paid; no penalty is applied.
+    function emergencyUserWithdraw(uint256 stakeIndex) external nonReentrant {
+        require(emergencyMode, "Emergency mode not active");
+        require(stakeIndex < _stakes[msg.sender].length, "Invalid stake index");
+        Stake storage s = _stakes[msg.sender][stakeIndex];
+        require(s.active, "Stake not active");
+
+        uint256 principal = s.amount;
+        s.active = false;
+        totalStaked -= principal;
+
+        require(address(this).balance >= principal, "Insufficient contract balance");
+
+        emit StakeWithdrawn(msg.sender, stakeIndex, principal, 0);
+
+        (bool ok, ) = msg.sender.call{value: principal}("");
         require(ok, "Transfer failed");
     }
 

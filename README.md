@@ -6,9 +6,9 @@ A decentralized ETH staking platform on Ethereum Sepolia. Users stake ETH and ea
 
 | Item | Link |
 |---|---|
-| Frontend | `https://your-project.vercel.app` |
-| Contract (Sepolia) | _address redacted_ |
-| Etherscan | _link redacted_ |
+| Frontend | https://staking-d-app-phi.vercel.app |
+| Contract (Sepolia) | `0x9C8eeD0EF12BC79093d0f7423DC50E5d4B6a44c4` |
+| Etherscan | https://sepolia.etherscan.io/address/0x9C8eeD0EF12BC79093d0f7423DC50E5d4B6a44c4#code |
 
 ## Tech Stack
 
@@ -34,7 +34,8 @@ staking_dApp/
 - Claim rewards while keeping principal staked
 - 7-day lock period with 10% early withdrawal penalty
 - Reward calculation done fully on-chain
-- Pause system and emergency mode (owner only)
+- Pause system (owner) — blocks staking, claiming, and unstaking
+- Emergency mode (owner) — users can instantly withdraw principal (no rewards, no penalty)
 
 ## Quick Start
 

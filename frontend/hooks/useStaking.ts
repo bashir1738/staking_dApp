@@ -17,7 +17,7 @@ export interface StakeInfo {
 }
 
 export interface TxHistoryItem {
-  type: "staked" | "claimed" | "unstaked";
+  type: "staked" | "claimed" | "unstaked" | "emergency";
   amountEth: string;
   hash: string;
   timestamp: number;
@@ -58,6 +58,8 @@ export function useStaking(
   const [totalStaked, setTotalStaked] = useState<bigint>(0n);
   const [totalRewardsPaid, setTotalRewardsPaid] = useState<bigint>(0n);
   const [totalPenaltiesCollected, setTotalPenaltiesCollected] = useState<bigint>(0n);
+  const [emergencyMode, setEmergencyMode] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [txState, setTxState] = useState<TxState>({ status: "idle", message: "" });
   const [txHistory, setTxHistory] = useState<TxHistoryItem[]>([]);
@@ -81,13 +83,15 @@ export function useStaking(
 
     setIsLoading(true);
     try {
-      const [rawStakes, ts, trp, tpc] = await Promise.all([
+      const [rawStakes, ts, trp, tpc, em, paused] = await Promise.all([
         contract.getUserStakes(address) as Promise<
           { amount: bigint; startTime: bigint; lastClaimTime: bigint; active: boolean }[]
         >,
         contract.totalStaked() as Promise<bigint>,
         contract.totalRewardsPaid() as Promise<bigint>,
         contract.totalPenaltiesCollected() as Promise<bigint>,
+        contract.emergencyMode() as Promise<boolean>,
+        contract.paused() as Promise<boolean>,
       ]);
 
       const now = Math.floor(Date.now() / 1000);
@@ -114,6 +118,8 @@ export function useStaking(
       setTotalStaked(ts);
       setTotalRewardsPaid(trp);
       setTotalPenaltiesCollected(tpc);
+      setEmergencyMode(em);
+      setIsPaused(paused);
     } catch {
       // silently ignore read errors (e.g. wrong network)
     } finally {
@@ -131,6 +137,8 @@ export function useStaking(
       setTotalStaked(0n);
       setTotalRewardsPaid(0n);
       setTotalPenaltiesCollected(0n);
+      setEmergencyMode(false);
+      setIsPaused(false);
     }
   }, [address]);
 
@@ -144,6 +152,29 @@ export function useStaking(
     intervalRef.current = setInterval(fetchData, 30_000);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [address, signer, fetchData]);
+
+  // Real-time contract event listeners
+  useEffect(() => {
+    if (!address || !signer) return;
+    const provider = signer.provider;
+    if (!provider) return;
+
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, provider);
+
+    const refresh = () => { fetchData(); };
+
+    contract.on("StakeCreated", refresh);
+    contract.on("RewardClaimed", refresh);
+    contract.on("StakeWithdrawn", refresh);
+    contract.on("PenaltyApplied", refresh);
+    contract.on("EmergencyModeSet", refresh);
+    contract.on("Paused", refresh);
+    contract.on("Unpaused", refresh);
+
+    return () => {
+      contract.removeAllListeners();
     };
   }, [address, signer, fetchData]);
 
@@ -223,6 +254,23 @@ export function useStaking(
     [getContract, runTx, stakes]
   );
 
+  const doEmergencyUserWithdraw = useCallback(
+    async (stakeIndex: number) => {
+      const contract = getContract();
+      if (!contract) return;
+      const stake = stakes.find((s) => s.index === stakeIndex);
+      await runTx(
+        () => contract.emergencyUserWithdraw(stakeIndex) as Promise<ethers.ContractTransactionResponse>,
+        {
+          type: "emergency",
+          amountEth: stake ? ethers.formatEther(stake.amount) : "0",
+          stakeIndex,
+        }
+      );
+    },
+    [getContract, runTx, stakes]
+  );
+
   const clearTxStatus = useCallback(() => {
     setTxState({ status: "idle", message: "" });
   }, []);
@@ -238,12 +286,15 @@ export function useStaking(
     totalRewardsPaid,
     totalPenaltiesCollected,
     totalClaimable,
+    emergencyMode,
+    isPaused,
     isLoading,
     txState,
     txHistory,
     doStake,
     doClaimRewards,
     doUnstake,
+    doEmergencyUserWithdraw,
     clearTxStatus,
     refresh: fetchData,
   };

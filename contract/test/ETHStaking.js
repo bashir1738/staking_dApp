@@ -269,6 +269,83 @@ describe("ETHStaking", function () {
     });
   });
 
+  // ─── Pause blocks unstake ─────────────────────────────────────────────────────
+
+  describe("unstake() when paused", function () {
+    it("reverts when contract is paused", async function () {
+      await staking.connect(alice).stake({ value: ethers.parseEther("1") });
+      await time.increase(SEVEN_DAYS + ONE_DAY);
+      await staking.pause();
+      await expect(staking.connect(alice).unstake(0)).to.be.revertedWithCustomError(
+        staking,
+        "EnforcedPause"
+      );
+    });
+  });
+
+  // ─── Emergency user withdrawal ────────────────────────────────────────────────
+
+  describe("emergencyUserWithdraw()", function () {
+    it("reverts when emergency mode is not active", async function () {
+      await staking.connect(alice).stake({ value: ethers.parseEther("1") });
+      await expect(staking.connect(alice).emergencyUserWithdraw(0)).to.be.revertedWith(
+        "Emergency mode not active"
+      );
+    });
+
+    it("returns principal with no rewards in emergency mode", async function () {
+      const stakeAmount = ethers.parseEther("1");
+      await staking.connect(alice).stake({ value: stakeAmount });
+      await time.increase(30 * ONE_DAY);
+
+      await staking.setEmergencyMode(true);
+
+      const before = await ethers.provider.getBalance(alice.address);
+      const tx = await staking.connect(alice).emergencyUserWithdraw(0);
+      const receipt = await tx.wait();
+      const gasCost = receipt.gasUsed * tx.gasPrice;
+      const after = await ethers.provider.getBalance(alice.address);
+
+      // should receive exactly the principal (no rewards, no penalty)
+      expect(after).to.be.closeTo(before + stakeAmount - gasCost, ethers.parseEther("0.0001"));
+    });
+
+    it("marks stake inactive and decrements totalStaked", async function () {
+      await staking.connect(alice).stake({ value: ethers.parseEther("2") });
+      await staking.setEmergencyMode(true);
+      await staking.connect(alice).emergencyUserWithdraw(0);
+
+      const stakes = await staking.getUserStakes(alice.address);
+      expect(stakes[0].active).to.be.false;
+      expect(await staking.totalStaked()).to.equal(0);
+    });
+
+    it("emits StakeWithdrawn with reward=0", async function () {
+      await staking.connect(alice).stake({ value: ethers.parseEther("1") });
+      await staking.setEmergencyMode(true);
+      await expect(staking.connect(alice).emergencyUserWithdraw(0))
+        .to.emit(staking, "StakeWithdrawn")
+        .withArgs(alice.address, 0, ethers.parseEther("1"), 0);
+    });
+
+    it("works even when contract is paused", async function () {
+      await staking.connect(alice).stake({ value: ethers.parseEther("1") });
+      await staking.setEmergencyMode(true);
+      await staking.pause();
+      // emergency withdrawal should bypass the pause
+      await expect(staking.connect(alice).emergencyUserWithdraw(0)).to.not.be.reverted;
+    });
+
+    it("reverts on already-inactive stake", async function () {
+      await staking.connect(alice).stake({ value: ethers.parseEther("1") });
+      await staking.setEmergencyMode(true);
+      await staking.connect(alice).emergencyUserWithdraw(0);
+      await expect(staking.connect(alice).emergencyUserWithdraw(0)).to.be.revertedWith(
+        "Stake not active"
+      );
+    });
+  });
+
   // ─── Multiple stakes ──────────────────────────────────────────────────────────
 
   describe("Multiple stakes", function () {

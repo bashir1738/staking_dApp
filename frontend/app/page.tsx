@@ -19,6 +19,7 @@ export default function Home() {
   const onSepolia    = wallet.chainId === SEPOLIA_CHAIN_ID;
   const isBusy       = staking.txState.status === "signing" || staking.txState.status === "pending";
   const activeStakes = staking.stakes.filter((s) => s.active);
+  const isDisabled   = isBusy || (staking.isPaused && !staking.emergencyMode);
 
   return (
     <div className="min-h-screen" style={{ background: "var(--bg)" }}>
@@ -57,6 +58,7 @@ export default function Home() {
             staking={staking}
             activeStakes={activeStakes}
             isBusy={isBusy}
+            isDisabled={isDisabled}
           />
         )}
       </main>
@@ -149,9 +151,10 @@ interface ConnectedProps {
   staking:      ReturnType<typeof useStaking>;
   activeStakes: ReturnType<typeof useStaking>["stakes"];
   isBusy:       boolean;
+  isDisabled:   boolean;
 }
 
-function Connected({ wallet, staking, activeStakes, isBusy }: ConnectedProps) {
+function Connected({ wallet, staking, activeStakes, isBusy, isDisabled }: ConnectedProps) {
   return (
     <div className="flex flex-col gap-8">
       <Dashboard
@@ -161,11 +164,43 @@ function Connected({ wallet, staking, activeStakes, isBusy }: ConnectedProps) {
         activeStakesCount={activeStakes.length}
       />
 
+      {/* Emergency mode banner */}
+      {staking.emergencyMode && (
+        <div
+          className="flex items-center gap-3 px-5 py-4 rounded-xl text-sm"
+          style={{ background: "#180808", border: "1px solid #5a1a1a" }}
+        >
+          <span style={{ color: "#fca5a5", fontSize: "18px" }}>!</span>
+          <div>
+            <p className="font-semibold" style={{ color: "#fca5a5" }}>Emergency Mode Active</p>
+            <p className="text-xs mt-0.5" style={{ color: "#e08080" }}>
+              The contract is in emergency mode. You can withdraw your principal immediately — no rewards will be paid.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Paused banner (only when not in emergency mode) */}
+      {staking.isPaused && !staking.emergencyMode && (
+        <div
+          className="flex items-center gap-3 px-5 py-4 rounded-xl text-sm"
+          style={{ background: "#111008", border: "1px solid #3a2a08" }}
+        >
+          <span style={{ color: "var(--amber)", fontSize: "18px" }}>⏸</span>
+          <div>
+            <p className="font-semibold" style={{ color: "var(--amber)" }}>Contract Paused</p>
+            <p className="text-xs mt-0.5" style={{ color: "#c0a060" }}>
+              Staking, claiming, and withdrawals are temporarily disabled.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="divider" />
 
       <StakeForm
         onStake={staking.doStake}
-        isDisabled={isBusy}
+        isDisabled={isDisabled || staking.emergencyMode}
         walletBalance={wallet.walletBalance}
       />
 
@@ -201,7 +236,10 @@ function Connected({ wallet, staking, activeStakes, isBusy }: ConnectedProps) {
                 stake={stake}
                 onClaim={staking.doClaimRewards}
                 onUnstake={staking.doUnstake}
+                onEmergencyWithdraw={staking.doEmergencyUserWithdraw}
                 isDisabled={isBusy}
+                emergencyMode={staking.emergencyMode}
+                isPaused={staking.isPaused}
               />
             ))}
           </div>
